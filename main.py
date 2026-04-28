@@ -1,34 +1,86 @@
-import cv2
+import streamlit as st
+from PIL import Image
 from pyzbar.pyzbar import decode
+import re
+import requests
 
-# Load image
-image_path = "qr_code.png"  # replace with your image file
-img = cv2.imread(image_path)
+st.set_page_config(page_title="QR Code Analyzer", layout="centered")
 
-# Decode QR codes
-decoded_objects = decode(img)
+st.title("🔍 QR Code Analyzer")
+st.caption("Scan • Decode • Analyze • Try not to get scammed")
 
-# Check and display results
-if decoded_objects:
-    for obj in decoded_objects:
-        data = obj.data.decode("utf-8")
-        print("QR Code Data:", data)
+# Upload
+uploaded_file = st.file_uploader(
+    "Upload QR Code Image",
+    type=["png", "jpg", "jpeg", "bmp"]
+)
 
-        # Draw rectangle around QR code
-        points = obj.polygon
-        if len(points) == 4:
-            pts = [(point.x, point.y) for point in points]
-            for i in range(4):
-                cv2.line(img, pts[i], pts[(i+1) % 4], (0, 255, 0), 2)
+# Functions
+def detect_type(data):
+    if re.match(r'https?://', data):
+        return "Website URL"
+    elif "upi://" in data.lower():
+        return "UPI Payment QR"
+    elif "mailto:" in data.lower():
+        return "Email QR"
+    elif "tel:" in data.lower():
+        return "Phone Number QR"
+    elif "wifi:" in data.lower():
+        return "WiFi Configuration QR"
+    else:
+        return "Text / Other Data"
 
-        # Display decoded text on image
-        cv2.putText(img, data, (obj.rect.left, obj.rect.top - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-    # Show image
-    cv2.imshow("QR Code Scanner", img)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+def check_safety(data):
+    suspicious_words = [
+        "free-money",
+        "claim-now",
+        "urgent-payment",
+        "lottery",
+        "click-now",
+        "verify-account"
+    ]
 
-else:
-    print("No QR Code found!")
+    for word in suspicious_words:
+        if word in data.lower():
+            return "⚠ Suspicious"
+
+    if re.match(r'https?://', data):
+        try:
+            response = requests.get(data, timeout=5)
+            if response.status_code == 200:
+                return "✅ Safe (Website reachable)"
+            else:
+                return "⚠ Possibly Unsafe (Bad Response)"
+        except:
+            return "⚠ Possibly Unsafe (Site unreachable)"
+
+    return "✅ Safe"
+
+
+# Main logic
+if uploaded_file:
+    image = Image.open(uploaded_file)
+
+    st.image(image, caption="Uploaded QR Code", use_column_width=True)
+
+    if st.button("Analyze QR"):
+        decoded_objects = decode(image)
+
+        if not decoded_objects:
+            st.warning("No QR Code detected.")
+        else:
+            st.subheader("📊 Analysis Result")
+
+            for obj in decoded_objects:
+                data = obj.data.decode("utf-8")
+
+                st.text_area("Decoded Data", data, height=100)
+
+                qr_type = detect_type(data)
+                st.write(f"**Type:** {qr_type}")
+
+                status = check_safety(data)
+                st.write(f"**Safety:** {status}")
+
+                st.divider()
